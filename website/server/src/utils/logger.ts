@@ -11,6 +11,19 @@ declare module 'hono' {
   }
 }
 
+// Check if running in Google Cloud environment
+function isGoogleCloudEnvironment(): boolean {
+  // Check for Google Cloud environment variables
+  return !!(
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GCLOUD_PROJECT ||
+    process.env.GCP_PROJECT ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+    process.env.K_SERVICE || // Cloud Run
+    process.env.GAE_SERVICE // App Engine
+  );
+}
+
 // Configure transports based on environment
 function createLogger() {
   const transports: winston.transport[] = [
@@ -19,10 +32,14 @@ function createLogger() {
     }),
   ];
 
-  // Add Cloud Logging transport only in production
-  if (process.env.NODE_ENV === 'production') {
-    const loggingWinston = new LoggingWinston();
-    transports.push(loggingWinston);
+  // Add Cloud Logging transport only in production AND when Google Cloud credentials are available
+  if (process.env.NODE_ENV === 'production' && isGoogleCloudEnvironment()) {
+    try {
+      const loggingWinston = new LoggingWinston();
+      transports.push(loggingWinston);
+    } catch (error) {
+      console.warn('Failed to initialize Google Cloud Logging, falling back to console logging only:', error);
+    }
   }
 
   return winston.createLogger({
