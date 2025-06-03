@@ -7,6 +7,7 @@ import { timeout } from 'hono/timeout';
 import { FILE_SIZE_LIMITS } from './constants.js';
 import { processZipFile } from './processZipFile.js';
 import { processRemoteRepo } from './remoteRepo.js';
+import { createSwaggerRoutes } from './swagger.js';
 import type { PackResult } from './types.js';
 import { handlePackError } from './utils/errorHandler.js';
 import { cloudLogger, createErrorResponse, logError, logInfo } from './utils/logger.js';
@@ -45,6 +46,9 @@ app.use('/api', timeout(30000));
 
 // Health check endpoint
 app.get('/health', (c) => c.text('OK'));
+
+// Add Swagger documentation routes
+createSwaggerRoutes(app);
 
 // Main packing endpoint
 app.post(
