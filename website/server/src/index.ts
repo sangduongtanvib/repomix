@@ -15,11 +15,16 @@ import { getProcessConcurrency } from './utils/processConcurrency.js';
 import { calculateLatency, formatLatencyForDisplay } from './utils/time.js';
 
 // Log server metrics on startup
-logInfo('Server starting', {
-  metrics: {
-    processConcurrency: getProcessConcurrency(),
-  },
-});
+async function initializeServer() {
+  await logInfo('Server starting', {
+    metrics: {
+      processConcurrency: getProcessConcurrency(),
+    },
+  });
+}
+
+// Initialize server logging
+initializeServer().catch(console.error);
 
 const app = new Hono();
 
@@ -102,7 +107,7 @@ app.post(
       }
 
       // Log operation result
-      logInfo('Pack operation completed', {
+      await logInfo('Pack operation completed', {
         requestId,
         format,
         repository: result.metadata.repository,
@@ -118,7 +123,7 @@ app.post(
       return c.json(result);
     } catch (error) {
       // Handle errors
-      logError('Pack operation failed', error instanceof Error ? error : new Error('Unknown error'), {
+      await logError('Pack operation failed', error instanceof Error ? error : new Error('Unknown error'), {
         requestId: c.get('requestId'),
       });
 
@@ -130,12 +135,16 @@ app.post(
 
 // Start server
 const port = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 3000;
-logInfo(`Server starting on port ${port}`);
 
-serve({
-  fetch: app.fetch,
-  port,
-});
+async function startServer() {
+  await logInfo(`Server starting on port ${port}`);
+  serve({
+    fetch: app.fetch,
+    port,
+  });
+}
+
+startServer().catch(console.error);
 
 // Export app for testing
 export default app;

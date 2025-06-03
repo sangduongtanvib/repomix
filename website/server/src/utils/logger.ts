@@ -1,4 +1,3 @@
-import { LoggingWinston } from '@google-cloud/logging-winston';
 import type { Context, Next } from 'hono';
 import winston from 'winston';
 import { getClientIP } from './network.js';
@@ -14,18 +13,27 @@ declare module 'hono' {
 // Check if running in Google Cloud environment
 function isGoogleCloudEnvironment(): boolean {
   // Check for Google Cloud environment variables
-  return !!(
+  const hasGoogleCloudProject = !!(
     process.env.GOOGLE_CLOUD_PROJECT ||
     process.env.GCLOUD_PROJECT ||
-    process.env.GCP_PROJECT ||
-    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
+    process.env.GCP_PROJECT
+  );
+  
+  const hasGoogleCloudService = !!(
     process.env.K_SERVICE || // Cloud Run
     process.env.GAE_SERVICE // App Engine
   );
+  
+  const hasGoogleCredentials = !!(
+    process.env.GOOGLE_APPLICATION_CREDENTIALS
+  );
+  
+  // We need either credentials or to be running in a Google Cloud service
+  return hasGoogleCredentials || (hasGoogleCloudProject && hasGoogleCloudService);
 }
 
 // Configure transports based on environment
-function createLogger() {
+async function createLogger() {
   const transports: winston.transport[] = [
     new winston.transports.Console({
       format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
@@ -35,11 +43,21 @@ function createLogger() {
   // Add Cloud Logging transport only in production AND when Google Cloud credentials are available
   if (process.env.NODE_ENV === 'production' && isGoogleCloudEnvironment()) {
     try {
-      const loggingWinston = new LoggingWinston();
-      transports.push(loggingWinston);
+      // Additional check to ensure we have valid Google Cloud credentials
+      if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.GOOGLE_CLOUD_PROJECT) {
+        // Dynamic import to avoid errors when Google Cloud packages are not available
+        const { LoggingWinston } = await import('@google-cloud/logging-winston');
+        const loggingWinston = new LoggingWinston();
+        transports.push(loggingWinston);
+        console.log('Google Cloud Logging initialized successfully');
+      } else {
+        console.log('Google Cloud Logging skipped: missing credentials or project ID');
+      }
     } catch (error) {
       console.warn('Failed to initialize Google Cloud Logging, falling back to console logging only:', error);
     }
+  } else {
+    console.log('Google Cloud Logging disabled: not in production or not in Google Cloud environment');
   }
 
   return winston.createLogger({
@@ -49,7 +67,20 @@ function createLogger() {
 }
 
 // Create the logger instance
-const logger = createLogger();
+let logger: winston.Logger;
+
+// Initialize logger
+async function initializeLogger() {
+  if (!logger) {
+    logger = await createLogger();
+  }
+  return logger;
+}
+
+// Get logger instance (lazy initialization)
+async function getLogger() {
+  return logger || (await initializeLogger());
+}
 
 // Generate unique request identifier
 function generateRequestId(): string {
@@ -75,6 +106,7 @@ export function createErrorResponse(message: string, requestId: string): ErrorRe
 // Main logging middleware for Hono
 export function cloudLogger() {
   return async function loggerMiddleware(c: Context, next: Next) {
+    const logger = await getLogger();
     const requestId = generateRequestId();
     const startTime = Date.now();
 
@@ -151,28 +183,32 @@ export function cloudLogger() {
 }
 
 // Utility logging functions
-export function logDebug(message: string, context?: Record<string, unknown>): void {
+export async function logDebug(message: string, context?: Record<string, unknown>): Promise<void> {
+  const logger = await getLogger();
   logger.debug({
     message,
     ...context,
   });
 }
 
-export function logInfo(message: string, context?: Record<string, unknown>): void {
+export async function logInfo(message: string, context?: Record<string, unknown>): Promise<void> {
+  const logger = await getLogger();
   logger.info({
     message,
     ...context,
   });
 }
 
-export function logWarning(message: string, context?: Record<string, unknown>): void {
+export async function logWarning(message: string, context?: Record<string, unknown>): Promise<void> {
+  const logger = await getLogger();
   logger.warn({
     message,
     ...context,
   });
 }
 
-export function logError(message: string, error?: Error, context?: Record<string, unknown>): void {
+export async function logError(message: string, error?: Error, context?: Record<string, unknown>): Promise<void> {
+  const logger = await getLogger();
   logger.error({
     message,
     error: error
